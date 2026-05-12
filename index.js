@@ -1,27 +1,19 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { MongoClient } from "mongodb";
+import express from "express";
 
 const MONGO_URI = "mongodb+srv://admin_bd:adminusers@cluster0.hojwogl.mongodb.net/?appName=Cluster0"; 
 const client = new MongoClient(MONGO_URI);
 let db;
 
 const server = new Server(
-  {
-    name: "mcp-carnet-adresses",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
+  { name: "mcp-carnet-adresses", version: "1.0.0" },
+  { capabilities: { tools: {} } }
 );
 
+// --- 1. DÉCLARATION DES OUTILS ---
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
@@ -42,20 +34,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             localisation: { type: "string", description: "Ville et pays" }
           },
-          required: ["nom", "profession", "bio"], // Champs obligatoires
+          required: ["nom", "profession", "bio"],
         },
       },
     ],
   };
 });
 
-
+// --- 2. EXÉCUTION DES OUTILS ---
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name === "ajouter_utilisateur") {
     try {
       const donneesUtilisateur = request.params.arguments;
       const collection = db.collection("utilisateurs");
-
+      
       await collection.insertOne({
         nom: donneesUtilisateur.nom,
         age: donneesUtilisateur.age || null,
@@ -66,38 +58,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       });
 
       return {
-        content: [
-          {
-            type: "text",
-            text: `Succès : L'utilisateur ${donneesUtilisateur.nom} a été ajouté à la base de données.`,
-          },
-        ],
+        content: [{ type: "text", text: `Succès : L'utilisateur ${donneesUtilisateur.nom} a été ajouté à la base de données.` }],
       };
     } catch (error) {
       return {
-        content: [
-          {
-            type: "text",
-            text: `Erreur base de données : ${error.message}`,
-          },
-        ],
+        content: [{ type: "text", text: `Erreur base de données : ${error.message}` }],
         isError: true,
       };
     }
   }
-
   throw new Error(`Outil inconnu : ${request.params.name}`);
+});
+
+// --- 3. DÉMARRAGE DU SERVEUR WEB (EXPRESS) ---
+const app = express();
+let transport;
+
+app.get("/sse", async (req, res) => {
+  transport = new SSEServerTransport("/messages", res);
+  await server.connect(transport);
+});
+
+app.post("/messages", async (req, res) => {
+  if (transport) {
+    await transport.handlePostMessage(req, res);
+  }
 });
 
 async function run() {
   try {
     await client.connect();
     db = client.db("carnet_adresses");
-    console.error("Connecté à MongoDB avec succès.");
-
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-    console.error("Serveur MCP démarré et prêt à écouter.");
+    console.log("Connecté à MongoDB avec succès.");
+    
+    // On lance le serveur web sur le port 3000
+    app.listen(3000, () => {
+      console.log("Serveur MCP prêt ! Point d'accès pour n8n : http://localhost:3000/sse");
+    });
   } catch (error) {
     console.error("Erreur fatale au démarrage :", error);
     process.exit(1);
