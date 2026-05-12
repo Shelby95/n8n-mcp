@@ -12,10 +12,8 @@ const contacts = db.collection("users");
 console.log("✅ Connecté à MongoDB");
 
 
-const server = new McpServer(
-  { name: "mcp-carnet-adresses", version: "1.0.0" },
-  { capabilities: { tools: {} } }
-);
+function createServer() {
+  const server = new McpServer({ name: "mcp-carnet-adresses", version: "1.0.0" });
 
 server.tool(
   "ajouter_utilisateur",
@@ -40,25 +38,23 @@ server.tool(
             }
           }
 )
+  return server;
+}
 
 const app = express();
 app.use(express.json());
 
 app.get("/stream", async (req, res) => {
-  if(transport){
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
-  }
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
 
 });
 
 app.post("/stream", async (req, res) => {
-  if(transport){
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
-  }
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
 });
 
 
