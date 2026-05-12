@@ -4,7 +4,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { MongoClient } from "mongodb";
 import express from "express";
 
-const MONGO_URI = "mongodb+srv://admin_bd:adminusers@cluster0.hojwogl.mongodb.net/?appName=Cluster0"; 
+const MONGO_URI = "mongodb+srv://admin_db:adminusers@cluster0.hojwogl.mongodb.net/?appName=Cluster0"; 
 const client = new MongoClient(MONGO_URI);
 let db;
 
@@ -13,7 +13,6 @@ const server = new Server(
   { capabilities: { tools: {} } }
 );
 
-// --- 1. DÉCLARATION DES OUTILS ---
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
@@ -41,7 +40,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
-// --- 2. EXÉCUTION DES OUTILS ---
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name === "ajouter_utilisateur") {
     try {
@@ -70,7 +68,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   throw new Error(`Outil inconnu : ${request.params.name}`);
 });
 
-// --- 3. DÉMARRAGE DU SERVEUR WEB (EXPRESS) ---
 const app = express();
 let transport;
 
@@ -91,7 +88,6 @@ async function run() {
     db = client.db("carnet_adresses");
     console.log("Connecté à MongoDB avec succès.");
     
-    // On lance le serveur web sur le port 3000
     app.listen(3000, () => {
       console.log("Serveur MCP prêt ! Point d'accès pour n8n : http://localhost:3000/sse");
     });
