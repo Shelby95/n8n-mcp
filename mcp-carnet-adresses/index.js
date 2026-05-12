@@ -64,5 +64,5 @@ app.post("/stream", async (req, res) => {
 
 const PORT = 3001;
 app.listen(PORT, () => {
-  console.log(`🚀 MCP Carnet d'adresses sur http://localhost:${PORT}/stream`);
+  console.log(`🚀 MCP Carnet d'adresses sur http://mcp:3001/stream`);
 });
