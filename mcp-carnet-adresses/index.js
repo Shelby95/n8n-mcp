@@ -1,19 +1,18 @@
-import { MServer } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { MongoClient } from "mongodb";
 import { z } from "zod"; // comparer les types
 import express from "express";
+import "dotenv/config"; // charge automatiquement le fichier .env
 
-const MONGO_URI = "mongodb+srv://admin_db:adminusers@cluster0.hojwogl.mongodb.net/?appName=Cluster0";
-const client = new MongoClient(MONGO_URI);
+const client = new MongoClient(process.env.MONGODB_URI);
 await client.connect(); 
-const db = mongoClient.db("db");
+const db = client.db("db");
 const contacts = db.collection("users");
 console.log("✅ Connecté à MongoDB");
 
 
-const server = new MServer(
+const server = new McpServer(
   { name: "mcp-carnet-adresses", version: "1.0.0" },
   { capabilities: { tools: {} } }
 );
@@ -63,7 +62,7 @@ app.post("/stream", async (req, res) => {
 });
 
 
-const PORT = 3000 || 3001;
+const PORT = 3001;
 app.listen(PORT, () => {
   console.log(`🚀 MCP Carnet d'adresses sur http://localhost:${PORT}/stream`);
 });

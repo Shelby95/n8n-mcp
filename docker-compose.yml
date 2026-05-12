@@ -1,0 +1,39 @@
+services:
+  mcp:
+    build: ./mcp-carnet-adresses
+    ports:
+      - "3001:3001"
+    environment:
+      - MONGODB_URI=mongodb+srv://admin_db:adminusers@cluster0.hojwogl.mongodb.net/?appName=Cluster0
+      - PORT=3001
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=password
+      - MONGO_INITDB_DATABASE=db
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - mcp
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  n8n_data:
