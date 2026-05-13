@@ -235,7 +235,7 @@ function createServer() {
     async ({ nom_projet, description_projet }) => {
       const allUsers = await contacts.find({}).toArray();
 
-      if (allUsers.length === 0) return { content: [{ type: "text", text: `Aucun utilisateur dans le carnet d'adresses bye ✌️` }] };
+      if (allUsers.length === 0) return { content: [{ type: "text", text: `Aucun utilisateur dans le carnet d'adresses` }] };
 
       const normaliser = (texte) => {
         texte.toLowerCase()
@@ -260,7 +260,7 @@ function createServer() {
 
       scores.sort((a, b) => b.score - a.score);
 
-      const candidats = scores.filter(c => c.score > 0);
+      const candidats = scores.filter(c => c.score > 20);
 
       if (candidats.length === 0) {
         return {
@@ -297,10 +297,8 @@ function createServer() {
 
       const membresTxt = equipe.map((m, i) => `
     ${i + 1}. 👤 ${m.user.nom} — ${m.user.profession ?? "—"}
-      📍 ${m.user.localisation ?? "Non renseigné"}
       ✅ Compétences utiles : ${m.comparaisonComp.join(", ") || "—"}
       ${m.professionMatch ? `💼 Profession en lien avec le projet\n      ` : ""}📊 Score : ${m.score} pts
-      📝 ${m.user.bio ?? ""}
     `.trim()).join("\n\n");
 
       const texte = `
