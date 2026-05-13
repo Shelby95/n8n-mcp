@@ -9,7 +9,7 @@ const client = new MongoClient(process.env.MONGODB_URI);
 await client.connect(); 
 const db = client.db("db");
 const contacts = db.collection("users");
-console.log("✅ Connecté à MongoDB");
+console.log("Connecté à MongoDB");
 
 
 function createServer() {
@@ -38,13 +38,120 @@ server.tool(
           createdAt:    new Date(),
         });
         return {
-          content: [{ type: "text", text: `✅ "${nom}" a été ajouté (ID: ${result.insertedId})` }]
+          content: [{ type: "text", text: ` "${nom}" a été ajouté (ID: ${result.insertedId})` }]
         };
       } catch (error) {
         return {
-          content: [{ type: "text", text: `❌ Erreur : ${error.message}` }],
+          content: [{ type: "text", text: ` Erreur : ${error.message}` }],
           isError: true,
         };
+      }
+    }
+  );
+
+  server.tool(
+    "lire_utilisateur",
+    "Recherche et renvoie les informations d'un contact existant dans le carnet d'adresses à partir de son nom.",
+    {
+      nom: z.string().describe("Le nom (ou une partie du nom) de l'utilisateur à chercher"),
+    },
+    async ({ nom }) => {
+      try {
+        const user = await contacts.findOne({ nom: { $regex: new RegExp(nom, "i") } });
+        
+        if (!user) {
+          return { content: [{ type: "text", text: `Aucun utilisateur trouvé avec le nom "${nom}".` }] };
+        }
+        return {
+          content: [{ type: "text", text: `Utilisateur trouvé :\n${JSON.stringify(user, null, 2)}` }]
+        };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Erreur de lecture : ${error.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "supprimer_utilisateur",
+    "Supprime définitivement un contact du carnet d'adresses.",
+    {
+      nom: z.string().describe("Le nom exact de l'utilisateur à supprimer"),
+    },
+    async ({ nom }) => {
+      try {
+        const result = await contacts.deleteOne({ nom: { $regex: new RegExp(`^${nom}$`, "i") } });
+        
+        if (result.deletedCount === 0) {
+          return { content: [{ type: "text", text: `Suppression impossible : aucun utilisateur nommé "${nom}" n'existe.` }] };
+        }
+        return {
+          content: [{ type: "text", text: `L'utilisateur "${nom}" a été supprimé avec succès de la base de données.` }]
+        };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Erreur de suppression : ${error.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "lire_tous_utilisateurs",
+    "Récupère et affiche la liste complète de tous les contacts présents dans le carnet d'adresses.",
+    {},
+    async () => {
+      try {
+        const allUsers = await contacts.find({}).toArray();
+        
+        if (allUsers.length === 0) {
+          return { content: [{ type: "text", text: "📭 Le carnet d'adresses est actuellement vide." }] };
+        }
+        return {
+          content: [{ type: "text", text: `Voici tous les contacts du carnet :\n${JSON.stringify(allUsers, null, 2)}` }]
+        };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Erreur lors de la lecture globale : ${error.message}` }], isError: true };
+      }
+    }
+  );
+
+  // Outil pour MODIFIER un utilisateur
+  server.tool(
+    "modifier_utilisateur",
+    "Modifie les informations d'un contact existant. Seuls les champs renseignés seront mis à jour.",
+    {
+      nom_actuel:   z.string().describe("Le nom exact du contact à modifier (obligatoire pour le trouver)"),
+      nouveau_nom:  z.string().optional().describe("Nouveau nom (uniquement s'il doit être changé)"),
+      age:          z.number().optional().describe("Nouvel âge"),
+      profession:   z.string().optional().describe("Nouvelle profession"),
+      bio:          z.string().optional().describe("Nouvelle biographie"),
+      localisation: z.string().optional().describe("Nouvelle localisation")
+    },
+    async ({ nom_actuel, nouveau_nom, age, profession, bio, localisation }) => {
+      try {
+        const updateFields = {};
+        if (nouveau_nom) updateFields.nom = nouveau_nom;
+        if (age !== undefined) updateFields.age = age;
+        if (profession) updateFields.profession = profession;
+        if (bio) updateFields.bio = bio;
+        if (localisation) updateFields.localisation = localisation;
+
+        // Si l'IA n'a envoyé aucun champ à modifier
+        if (Object.keys(updateFields).length === 0) {
+          return { content: [{ type: "text", text: `Aucune nouvelle information n'a été fournie pour mettre à jour ${nom_actuel}.` }] };
+        }
+
+        const result = await contacts.updateOne(
+          { nom: { $regex: new RegExp(`^${nom_actuel}$`, "i") } }, // Recherche insensible à la casse
+          { $set: updateFields }
+        );
+
+        if (result.matchedCount === 0) {
+          return { content: [{ type: "text", text: `Modification impossible : aucun utilisateur nommé "${nom_actuel}" n'existe dans la base.` }] };
+        }
+        return {
+          content: [{ type: "text", text: `Le profil de "${nom_actuel}" a été mis à jour avec succès dans la base de données.` }]
+        };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Erreur lors de la modification : ${error.message}` }], isError: true };
       }
     }
   );
@@ -65,5 +172,5 @@ app.all("/stream", async (req, res) => {
 
 const PORT = 3001;
 app.listen(PORT, () => {
-  console.log(`🚀 MCP Carnet d'adresses sur http://mcp:3001/stream`);
+  console.log(` MCP Carnet d'adresses sur http://mcp:3001/stream`);
 });
