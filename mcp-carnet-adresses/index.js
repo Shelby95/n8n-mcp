@@ -15,7 +15,7 @@ console.log("Connecté à MongoDB");
 function createServer() {
   const server = new McpServer({ name: "mcp-carnet-adresses", version: "1.0.0" });
 
-server.tool(
+  server.tool(
     "ajouter_utilisateur",
     "Ajoute un nouveau contact professionnel dans le carnet d'adresses.",
     {
@@ -113,7 +113,6 @@ server.tool(
     }
   );
 
-  // Outil pour MODIFIER un utilisateur
   server.tool(
     "modifier_utilisateur",
     "Modifie les informations d'un contact existant. Seuls les champs renseignés seront mis à jour.",
@@ -155,6 +154,76 @@ server.tool(
       }
     }
   );
+
+  server.tool(
+  "comparer_competences",
+  "Compare les compétences de deux contacts et identifie les compétences communes et différentes",
+  {
+    nom1: z.string().describe("Nom du premier contact"),
+    nom2: z.string().describe("Nom du deuxième contact"),
+  },
+  async ({ nom1, nom2 }) => {
+    const contact1 = await contacts.findOne({ nom: new RegExp(nom1, "i") });
+    const contact2 = await contacts.findOne({ nom: new RegExp(nom2, "i") });
+
+    if (!contact1) return { content: [{ type: "text", text: `❌ Contact "${nom1}" introuvable` }] };
+    if (!contact2) return { content: [{ type: "text", text: `❌ Contact "${nom2}" introuvable` }] };
+
+    const comp1 = contact1.competences?.map(c => c.toLowerCase()) ?? [];
+    const comp2 = contact2.competences?.map(c => c.toLowerCase()) ?? [];
+
+     const communes        = comp1.filter(c => comp2.includes(c));
+    const complementaires = [
+      ...comp1.filter(c => !comp2.includes(c)),
+      ...comp2.filter(c => !comp1.includes(c)),
+    ];
+
+    let score = 0;
+    let points = [];
+
+    // Compétences complémentaires = bonne collaboration
+    if (complementaires.length > 0) {
+      score += 40;
+      points.push(`Compétences complémentaires (${complementaires.length} différentes) → bonne répartition des rôles`);
+    }
+
+    // Quelques compétences communes = langage commun
+    if (communes.length > 0 && communes.length <= 3) {
+      score += 30;
+      points.push(`${communes.length} compétence(s) en commun → base de communication solide`);
+    } else if (communes.length > 3) {
+      score += 15;
+      points.push(`Beaucoup de compétences identiques (${communes.length}) → risque de redondance`);
+    }
+
+    // Professions différentes = complémentarité
+    if (contact1.profession?.toLowerCase() !== contact2.profession?.toLowerCase()) {
+      score += 20;
+      points.push(`Professions (${contact1.profession} / ${contact2.profession}) → complémentarité métier`);
+    } else {
+      score += 10;
+      points.push(`ℹ : Même profession → collaboration possible mais profils similaires`);
+    }
+
+    const verdict = score >= 70 ? "Ils peuvent tout à fait collaborer ensemble dans la même équipe"
+                  : score <= 60 ? "Ils peuvent collaborer mais pas dans la même équipe"
+                  :               "Ils ne peuvent pas du tout collaborer";
+
+    const texte = `
+      ${contact1.nom} peut-il travailler avec ${contact2.nom} ?
+      ${"─".repeat(50)}
+      ${verdict} — Score : ${score}/100
+
+      Analyse :
+      ${points.map(p => `   ${p}`).join("\n")}
+
+      Compétences communes : ${communes.length > 0 ? communes.join(", ") : "aucune"}
+      Compétences complémentaires : ${complementaires.slice(0, 5).join(", ")}${complementaires.length > 5 ? "..." : ""}
+          `.trim();
+
+        return { content: [{ type: "text", text: texte }] };
+      }
+    );
 
   return server;
 }
