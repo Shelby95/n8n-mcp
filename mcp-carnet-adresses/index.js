@@ -16,42 +16,47 @@ function createServer() {
   const server = new McpServer({ name: "mcp-carnet-adresses", version: "1.0.0" });
 
 server.tool(
-  "ajouter_utilisateur",
-  "Ajoute un nouveau contact professionnel dans le carnet d'adresses.",
+    "ajouter_utilisateur",
+    "Ajoute un nouveau contact professionnel dans le carnet d'adresses.",
     {
-            nom: z.string().describe("Nom complet"),
-            age: z.number().describe("Âge en années" ),
-            profession: z.string().describe("Intitulé du poste"),
-            bio: z.string().describe("Courte biographie descriptive"),
-            competences: z.array(z.string()).optional().describe("Liste des compétences clés"),
-            localisation: z.string().optional().describe("Ville et pays")
-          },
-          async (contact) => {
-            const result = await contacts.insertOne({
-                    ...contact,
-                    createdAt: new Date(),
-            })
-            return {
-              content: [{
-                type: "text", text: `✅"${contact.nom}" a été ajouté (ID: ${result.insertedId})`
-              }]
-            }
-          }
-)
+      nom:          z.string().describe("Nom complet"),
+      age:          z.number().optional().describe("Âge en années"),
+      profession:   z.string().describe("Intitulé du poste"),
+      bio:          z.string().describe("Courte biographie descriptive"),
+      competences:  z.array(z.string()).optional().describe("Liste des compétences clés"),
+      localisation: z.string().optional().describe("Ville et pays"),
+    },
+    async ({ nom, age, profession, bio, competences, localisation }) => {
+      try {
+        const result = await contacts.insertOne({
+          nom,
+          age:          age ?? null,
+          profession,
+          bio,
+          competences:  competences ?? [],
+          localisation: localisation ?? "Non spécifiée",
+          createdAt:    new Date(),
+        });
+        return {
+          content: [{ type: "text", text: `✅ "${nom}" a été ajouté (ID: ${result.insertedId})` }]
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `❌ Erreur : ${error.message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
   return server;
 }
 
 const app = express();
 app.use(express.json());
 
-app.get("/stream", async (req, res) => {
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
-
-});
-
-app.post("/stream", async (req, res) => {
+app.all("/stream", async (req, res) => {
+  const server = createServer(); // nouvelle instance à chaque requête
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   await server.connect(transport);
   await transport.handleRequest(req, res, req.body);
