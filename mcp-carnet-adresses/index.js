@@ -318,8 +318,8 @@ function createServer() {
     ✅ Compétences couvertes : ${[...competencesCouvertes].join(", ") || "—"}
 
     ${competencesManquantes.length > 0
-          ? `⚠️ Compétences non couvertes : ${competencesManquantes.join(", ")}\n   → Recrutement recommandé sur ces points.`
-          : "🎉 Toutes les compétences détectées sont couvertes !"}
+          ? `Compétences non couvertes : ${competencesManquantes.join(", ")}\n   → Recrutement recommandé sur ces points.`
+          : "Toutes les compétences détectées sont couvertes !"}
         `.trim();
 
       return { content: [{ type: "text", text: texte }] };
