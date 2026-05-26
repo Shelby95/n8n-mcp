@@ -135,8 +135,10 @@ function createServer() {
         if (profession) updateFields.profession = profession;
         if (bio) updateFields.bio = bio;
         if (localisation) updateFields.localisation = localisation;
-        if (competences) updateFields.competences = competences;
-
+        if (Array.isArray(competences) && competences.length > 0) {
+          updateFields.competences = competences;
+        }
+        
         if (Object.keys(updateFields).length === 0) {
           return { content: [{ type: "text", text: `Aucune nouvelle information n'a été fournie pour mettre à jour ${nom_actuel}.` }] };
         }
