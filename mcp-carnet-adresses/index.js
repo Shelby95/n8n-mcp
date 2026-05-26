@@ -1,9 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { MongoClient } from "mongodb";
-import { z } from "zod"; // comparer les types
+import { z } from "zod";
 import express from "express";
-import "dotenv/config"; // charge automatiquement le fichier .env
+import cors from "cors";
+import "dotenv/config";
 
 const client = new MongoClient(process.env.MONGODB_URI);
 await client.connect();
@@ -11,10 +12,10 @@ const db = client.db("db");
 const contacts = db.collection("users");
 console.log("Connecté à MongoDB");
 
-
 function createServer() {
   const server = new McpServer({ name: "mcp-carnet-adresses", version: "1.0.0" });
 
+  // --- 1. TOOL : AJOUTER ---
   server.tool(
     "ajouter_utilisateur",
     "Ajoute un nouveau contact professionnel dans le carnet d'adresses.",
@@ -49,6 +50,7 @@ function createServer() {
     }
   );
 
+  // --- 2. TOOL : LIRE UN UTILISATEUR ---
   server.tool(
     "lire_utilisateur",
     "Recherche et renvoie les informations d'un contact existant dans le carnet d'adresses à partir de son nom.",
@@ -58,7 +60,6 @@ function createServer() {
     async ({ nom }) => {
       try {
         const user = await contacts.findOne({ nom: { $regex: new RegExp(nom, "i") } });
-
         if (!user) {
           return { content: [{ type: "text", text: `Aucun utilisateur trouvé avec le nom "${nom}".` }] };
         }
@@ -71,6 +72,7 @@ function createServer() {
     }
   );
 
+  // --- 3. TOOL : SUPPRIMER ---
   server.tool(
     "supprimer_utilisateur",
     "Supprime définitivement un contact du carnet d'adresses.",
@@ -80,7 +82,6 @@ function createServer() {
     async ({ nom }) => {
       try {
         const result = await contacts.deleteOne({ nom: { $regex: new RegExp(`^${nom}$`, "i") } });
-
         if (result.deletedCount === 0) {
           return { content: [{ type: "text", text: `Suppression impossible : aucun utilisateur nommé "${nom}" n'existe.` }] };
         }
@@ -93,6 +94,7 @@ function createServer() {
     }
   );
 
+  // --- 4. TOOL : LIRE TOUS LES UTILISATEURS ---
   server.tool(
     "lire_tous_utilisateurs",
     "Récupère et affiche la liste complète de tous les contacts présents dans le carnet d'adresses.",
@@ -100,7 +102,6 @@ function createServer() {
     async () => {
       try {
         const allUsers = await contacts.find({}).toArray();
-
         if (allUsers.length === 0) {
           return { content: [{ type: "text", text: "📭 Le carnet d'adresses est actuellement vide." }] };
         }
@@ -113,6 +114,7 @@ function createServer() {
     }
   );
 
+  // --- 5. TOOL : MODIFIER ---
   server.tool(
     "modifier_utilisateur",
     "Modifie les informations d'un contact existant. Seuls les champs renseignés seront mis à jour.",
@@ -122,9 +124,10 @@ function createServer() {
       age: z.number().optional().describe("Nouvel âge"),
       profession: z.string().optional().describe("Nouvelle profession"),
       bio: z.string().optional().describe("Nouvelle biographie"),
-      localisation: z.string().optional().describe("Nouvelle localisation")
+      localisation: z.string().optional().describe("Nouvelle localisation"),
+      competences: z.array(z.string()).optional().describe("Nouvelles compétences")
     },
-    async ({ nom_actuel, nouveau_nom, age, profession, bio, localisation }) => {
+    async ({ nom_actuel, nouveau_nom, age, profession, bio, localisation, competences }) => {
       try {
         const updateFields = {};
         if (nouveau_nom) updateFields.nom = nouveau_nom;
@@ -132,14 +135,14 @@ function createServer() {
         if (profession) updateFields.profession = profession;
         if (bio) updateFields.bio = bio;
         if (localisation) updateFields.localisation = localisation;
+        if (competences) updateFields.competences = competences;
 
-        // Si l'IA n'a envoyé aucun champ à modifier
         if (Object.keys(updateFields).length === 0) {
           return { content: [{ type: "text", text: `Aucune nouvelle information n'a été fournie pour mettre à jour ${nom_actuel}.` }] };
         }
 
         const result = await contacts.updateOne(
-          { nom: { $regex: new RegExp(`^${nom_actuel}$`, "i") } }, // Recherche insensible à la casse
+          { nom: { $regex: new RegExp(`^${nom_actuel}$`, "i") } },
           { $set: updateFields }
         );
 
@@ -155,6 +158,7 @@ function createServer() {
     }
   );
 
+  // --- 6. TOOL : COMPARER ---
   server.tool(
     "comparer_competences",
     "Compare les compétences de deux contacts et identifie les compétences communes et différentes",
@@ -181,13 +185,11 @@ function createServer() {
       let score = 0;
       let points = [];
 
-      // Compétences complémentaires = bonne collaboration
       if (complementaires.length > 0) {
         score += 40;
         points.push(`Compétences complémentaires (${complementaires.length} différentes) → bonne répartition des rôles`);
       }
 
-      // Quelques compétences communes = langage commun
       if (communes.length > 0 && communes.length <= 3) {
         score += 30;
         points.push(`${communes.length} compétence(s) en commun → base de communication solide`);
@@ -196,7 +198,6 @@ function createServer() {
         points.push(`Beaucoup de compétences identiques (${communes.length}) → risque de redondance`);
       }
 
-      // Professions différentes = complémentarité
       if (contact1.profession?.toLowerCase() !== contact2.profession?.toLowerCase()) {
         score += 20;
         points.push(`Professions (${contact1.profession} / ${contact2.profession}) → complémentarité métier`);
@@ -225,9 +226,10 @@ function createServer() {
     }
   );
 
+  // --- 7. TOOL : CRÉATION ÉQUIPE ---
   server.tool(
     "creation_equipe",
-    "Crée une équipe ayant les compétence pour le projet",
+    "Crée une équipe ayant les compétences pour le projet",
     {
       nom_projet: z.string().describe("Nom du projet"),
       description_projet: z.string().describe("Description du projet et de ses objectifs"),
@@ -238,29 +240,26 @@ function createServer() {
       if (allUsers.length === 0) return { content: [{ type: "text", text: `Aucun utilisateur dans le carnet d'adresses` }] };
 
       const normaliser = (texte) => {
-        texte.toLowerCase()
+        if (!texte) return "";
+        return texte.toLowerCase()
           .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "") 
+          .replace(/[\u0300-\u036f]/g, "")
           .replace(/[^a-z0-9\s]/g, " ");
       }
 
       const desc_proj = normaliser(description_projet);
 
       const scoreUsers = allUsers.map(user => {
-        const competences = user.competences ?? []
-        const comparaisonComp = competences.includes(comp => desc_proj.includes(normaliser(comp)));
-
-        const professionMatch = user.profession &&
-          desc_proj.includes(normaliser(user.profession));
-
-        const score = comparaisonComp.length * 20 + professionMatch * 20;
+        const competences = user.competences ?? [];
+        const comparaisonComp = competences.filter(comp => desc_proj.includes(normaliser(comp)));
+        const professionMatch = user.profession && desc_proj.includes(normaliser(user.profession));
+        const score = (comparaisonComp.length * 20) + (professionMatch ? 20 : 0);
 
         return { user, comparaisonComp, professionMatch, score };
-      })
+      });
 
-      scores.sort((a, b) => b.score - a.score);
-
-      const candidats = scores.filter(c => c.score > 20);
+      scoreUsers.sort((a, b) => b.score - a.score);
+      const candidats = scoreUsers.filter(c => c.score > 20);
 
       if (candidats.length === 0) {
         return {
@@ -275,20 +274,18 @@ function createServer() {
       const competencesCouvertes = new Set();
 
       for (const candidat of candidats) {
-        const apporteNouveau = candidat.matches.some(c => !competencesCouvertes.has(c));
+        const apporteNouveau = candidat.comparaisonComp.some(c => !competencesCouvertes.has(c));
         if (apporteNouveau || equipe.length === 0) {
           equipe.push(candidat);
-          candidat.matches.forEach(c => competencesCouvertes.add(c));
+          candidat.comparaisonComp.forEach(c => competencesCouvertes.add(c));
         }
       }
 
-      // Complète si besoin
       for (const candidat of candidats) {
         if (!equipe.includes(candidat)) equipe.push(candidat);
       }
 
-      // Toutes les compétences mentionnées dans la description
-      const toutesCompetences = [...new Set(tousContacts.flatMap(c => c.competences ?? []))];
+      const toutesCompetences = [...new Set(allUsers.flatMap(c => c.competences ?? []))];
       const competencesDetectees = toutesCompetences.filter(comp =>
         desc_proj.includes(normaliser(comp))
       );
@@ -296,26 +293,26 @@ function createServer() {
       const competencesManquantes = competencesDetectees.filter(c => !competencesCouvertes.has(c));
 
       const membresTxt = equipe.map((m, i) => `
-    ${i + 1}. 👤 ${m.user.nom} — ${m.user.profession ?? "—"}
-      ✅ Compétences utiles : ${m.comparaisonComp.join(", ") || "—"}
-      ${m.professionMatch ? `💼 Profession en lien avec le projet\n      ` : ""}📊 Score : ${m.score} pts
+    ${i + 1}. ${m.user.nom} — ${m.user.profession ?? "—"}
+      Compétences utiles : ${m.comparaisonComp.join(", ") || "—"}
+      ${m.professionMatch ? `Profession en lien avec le projet\n      ` : ""} Score : ${m.score} pts
     `.trim()).join("\n\n");
 
       const texte = `
-    🚀 ÉQUIPE POUR : ${nom_projet}
+    ÉQUIPE POUR : ${nom_projet}
     ${"─".repeat(50)}
-    📋 Description : ${description_projet}
+    Description : ${description_projet}
 
-    🔍 Compétences détectées dans la description :
+    Compétences détectées dans la description :
       ${competencesDetectees.length > 0 ? competencesDetectees.join(", ") : "Aucune compétence reconnue"}
 
     ${"─".repeat(50)}
-    👥 ÉQUIPE SÉLECTIONNÉE (membre(s)) :
+    ÉQUIPE SÉLECTIONNÉE (${equipe.length} membre(s)) :
 
     ${membresTxt}
 
     ${"─".repeat(50)}
-    ✅ Compétences couvertes : ${[...competencesCouvertes].join(", ") || "—"}
+    Compétences couvertes : ${[...competencesCouvertes].join(", ") || "—"}
 
     ${competencesManquantes.length > 0
           ? `Compétences non couvertes : ${competencesManquantes.join(", ")}\n   → Recrutement recommandé sur ces points.`
@@ -329,16 +326,26 @@ function createServer() {
   return server;
 }
 
+// --- EXPRESS SERVER CONFIG ---
 const app = express();
 app.use(express.json());
+app.use(cors());
+
+app.get("/api/contacts", async (req, res) => {
+  try {
+    const allUsers = await contacts.find({}).toArray();
+    res.json(allUsers);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.all("/stream", async (req, res) => {
-  const server = createServer(); // nouvelle instance à chaque requête
+  const server = createServer();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   await server.connect(transport);
   await transport.handleRequest(req, res, req.body);
 });
-
 
 const PORT = 3001;
 app.listen(PORT, () => {
