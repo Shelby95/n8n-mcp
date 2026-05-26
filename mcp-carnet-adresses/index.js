@@ -115,50 +115,55 @@ function createServer() {
   );
 
   // --- 5. TOOL : MODIFIER ---
-  server.tool(
-    "modifier_utilisateur",
-    "Modifie les informations d'un contact existant. Seuls les champs renseignés seront mis à jour.",
-    {
-      nom_actuel: z.string().describe("Le nom exact du contact à modifier (obligatoire pour le trouver)"),
-      nouveau_nom: z.string().optional().describe("Nouveau nom (uniquement s'il doit être changé)"),
-      age: z.number().optional().describe("Nouvel âge"),
-      profession: z.string().optional().describe("Nouvelle profession"),
-      bio: z.string().optional().describe("Nouvelle biographie"),
-      localisation: z.string().optional().describe("Nouvelle localisation"),
-      competences: z.array(z.string()).optional().describe("Nouvelles compétences")
-    },
-    async ({ nom_actuel, nouveau_nom, age, profession, bio, localisation, competences }) => {
-      try {
-        const updateFields = {};
-        if (nouveau_nom) updateFields.nom = nouveau_nom;
-        if (age !== undefined) updateFields.age = age;
-        if (profession) updateFields.profession = profession;
-        if (bio) updateFields.bio = bio;
-        if (localisation) updateFields.localisation = localisation;
-        if (Array.isArray(competences) && competences.length > 0) {
-          updateFields.competences = competences;
-        }
-        
-        if (Object.keys(updateFields).length === 0) {
-          return { content: [{ type: "text", text: `Aucune nouvelle information n'a été fournie pour mettre à jour ${nom_actuel}.` }] };
-        }
+server.tool(
+  "modifier_utilisateur",
+  "Modifie les informations d'un contact existant. Seuls les champs renseignés seront mis à jour.",
+  {
+    nom_actuel: z.string().describe("Le nom exact du contact à modifier (obligatoire pour le trouver)"),
+    nouveau_nom: z.string().optional().describe("Nouveau nom (uniquement s'il doit être changé)"),
+    age: z.number().optional().describe("Nouvel âge"),
+    profession: z.string().optional().describe("Nouvelle profession"),
+    bio: z.string().optional().describe("Nouvelle biographie"),
+    localisation: z.string().optional().describe("Nouvelle localisation"),
+    competences: z.array(z.string()).optional().describe("Nouvelles compétences. DOIT être un tableau JSON, par exemple: [\"SQL\", \"Python\"]")
+  },
+  async ({ nom_actuel, nouveau_nom, age, profession, bio, localisation, competences }) => {
+    try {
+      console.log("competences reçues:", competences);
 
-        const result = await contacts.updateOne(
-          { nom: { $regex: new RegExp(`^${nom_actuel}$`, "i") } },
-          { $set: updateFields }
-        );
-
-        if (result.matchedCount === 0) {
-          return { content: [{ type: "text", text: `Modification impossible : aucun utilisateur nommé "${nom_actuel}" n'existe dans la base.` }] };
-        }
-        return {
-          content: [{ type: "text", text: `Le profil de "${nom_actuel}" a été mis à jour avec succès dans la base de données.` }]
-        };
-      } catch (error) {
-        return { content: [{ type: "text", text: `Erreur lors de la modification : ${error.message}` }], isError: true };
+      const updateFields = {};
+      if (nouveau_nom)                                          updateFields.nom = nouveau_nom;
+      if (age !== undefined)                                    updateFields.age = age;
+      if (profession)                                           updateFields.profession = profession;
+      if (bio)                                                  updateFields.bio = bio;
+      if (localisation)                                         updateFields.localisation = localisation;
+      if (Array.isArray(competences) && competences.length > 0) {
+        updateFields.competences = competences;
       }
+
+      console.log("updateFields:", JSON.stringify(updateFields)); 
+
+      if (Object.keys(updateFields).length === 0) {
+        return { content: [{ type: "text", text: `Aucune nouvelle information n'a été fournie pour mettre à jour ${nom_actuel}.` }] };
+      }
+
+      const result = await contacts.updateOne(
+        { nom: { $regex: new RegExp(`^${nom_actuel}$`, "i") } },
+        { $set: updateFields }
+      );
+
+      if (result.matchedCount === 0) {
+        return { content: [{ type: "text", text: `Modification impossible : aucun utilisateur nommé "${nom_actuel}" n'existe dans la base.` }] };
+      }
+
+      return {
+        content: [{ type: "text", text: `Le profil de "${nom_actuel}" a été mis à jour avec succès dans la base de données.` }]
+      };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Erreur lors de la modification : ${error.message}` }], isError: true };
     }
-  );
+  }
+);
 
   // --- 6. TOOL : COMPARER ---
   server.tool(
@@ -172,8 +177,8 @@ function createServer() {
       const contact1 = await contacts.findOne({ nom: new RegExp(nom1, "i") });
       const contact2 = await contacts.findOne({ nom: new RegExp(nom2, "i") });
 
-      if (!contact1) return { content: [{ type: "text", text: `❌ Contact "${nom1}" introuvable` }] };
-      if (!contact2) return { content: [{ type: "text", text: `❌ Contact "${nom2}" introuvable` }] };
+      if (!contact1) return { content: [{ type: "text", text: `Contact "${nom1}" introuvable` }] };
+      if (!contact2) return { content: [{ type: "text", text: `Contact "${nom2}" introuvable` }] };
 
       const comp1 = contact1.competences?.map(c => c.toLowerCase()) ?? [];
       const comp2 = contact2.competences?.map(c => c.toLowerCase()) ?? [];
@@ -187,29 +192,60 @@ function createServer() {
       let score = 0;
       let points = [];
 
-      if (complementaires.length > 0) {
-        score += 40;
-        points.push(`Compétences complémentaires (${complementaires.length} différentes) → bonne répartition des rôles`);
-      }
-
-      if (communes.length > 0 && communes.length <= 3) {
-        score += 30;
-        points.push(`${communes.length} compétence(s) en commun → base de communication solide`);
-      } else if (communes.length > 3) {
-        score += 15;
-        points.push(`Beaucoup de compétences identiques (${communes.length}) → risque de redondance`);
-      }
-
-      if (contact1.profession?.toLowerCase() !== contact2.profession?.toLowerCase()) {
-        score += 20;
-        points.push(`Professions (${contact1.profession} / ${contact2.profession}) → complémentarité métier`);
+      // 1. PROFESSION — critère principal (max 60 pts)
+      if (contact1.profession?.toLowerCase() === contact2.profession?.toLowerCase()) {
+        score += 60;
+        points.push(`Même profession (${contact1.profession}) → collaboration en équipe très probable`);
       } else {
-        score += 10;
-        points.push(`ℹ : Même profession → collaboration possible mais profils similaires`);
+        const domaines = {
+          tech: ["développeur", "ingénieur", "data", "devops", "architecte", "administrateur"],
+          business: ["manager", "directeur", "commercial", "chef de projet"],
+          creative: ["designer", "graphiste", "artiste", "acteur", "réalisateur"],
+        };
+        const getDomaine = (prof) => {
+          if (!prof) return null;
+          const p = prof.toLowerCase();
+          return Object.entries(domaines).find(([, mots]) => mots.some(m => p.includes(m)))?.[0] ?? null;
+        };
+        const d1 = getDomaine(contact1.profession);
+        const d2 = getDomaine(contact2.profession);
+        if (d1 && d2 && d1 === d2) {
+          score += 30;
+          points.push(`Même domaine (${contact1.profession} / ${contact2.profession}) → collaboration possible`);
+        } else {
+          score += 5;
+          points.push(`Professions très différentes (${contact1.profession} / ${contact2.profession}) → collaboration improbable`);
+        }
       }
 
-      const verdict = score >= 70 ? "Ils peuvent tout à fait collaborer ensemble dans la même équipe"
-        : score <= 60 ? "Ils peuvent collaborer mais pas dans la même équipe"
+      // 2. COMPÉTENCES COMMUNES — critère secondaire (max 30 pts)
+      if (communes.length >= 5) {
+        score += 30;
+        points.push(`Nombreuses compétences communes (${communes.length}) → très bonne base`);
+      } else if (communes.length >= 2) {
+        score += 20;
+        points.push(`Quelques compétences communes (${communes.length}) → base correcte`);
+      } else if (communes.length === 1) {
+        score += 10;
+        points.push(`1 seule compétence commune → base faible`);
+      } else {
+        points.push(`Aucune compétence commune → communication difficile`);
+      }
+
+      // 3. COMPÉTENCES COMPLÉMENTAIRES — bonus mineur (max 10 pts)
+      if (complementaires.length >= 5) {
+        score += 10;
+        points.push(`Compétences complémentaires (${complementaires.length}) → apport mutuel mais rôles différents`);
+      } else if (complementaires.length > 0) {
+        score += 5;
+        points.push(`Quelques compétences complémentaires (${complementaires.length}) → légère synergie`);
+      }
+
+      // VERDICT
+      const verdict = score >= 70
+        ? "Ils peuvent tout à fait collaborer ensemble dans la même équipe"
+        : score >= 40
+          ? "Ils peuvent collaborer mais pas dans la même équipe"
           : "Ils ne peuvent pas du tout collaborer";
 
       const texte = `
