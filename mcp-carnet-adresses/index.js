@@ -75,18 +75,33 @@ function createServer() {
   // --- 3. TOOL : SUPPRIMER ---
   server.tool(
     "supprimer_utilisateur",
-    "Supprime définitivement un contact du carnet d'adresses.",
+    "Supprime définitivement un contact. S'il y a des homonymes, il FAUT utiliser la profession pour cibler le bon.",
     {
-      nom: z.string().describe("Le nom exact de l'utilisateur à supprimer"),
+      nom: z.string().describe("Le nom de l'utilisateur à supprimer"),
+      profession: z.string().optional().describe("La profession pour éviter de supprimer le mauvais homonyme (ex: 'devops')")
     },
-    async ({ nom }) => {
+    async ({ nom, profession }) => {
       try {
-        const result = await contacts.deleteOne({ nom: { $regex: new RegExp(`^${nom}$`, "i") } });
-        if (result.deletedCount === 0) {
-          return { content: [{ type: "text", text: `Suppression impossible : aucun utilisateur nommé "${nom}" n'existe.` }] };
+        const query = { nom: { $regex: new RegExp(nom.trim(), "i") } };
+        
+        if (profession) {
+          query.profession = { $regex: new RegExp(profession.trim(), "i") };
         }
+
+        const users = await contacts.find(query).toArray();
+
+        if (users.length === 0) {
+          return { content: [{ type: "text", text: `Suppression impossible : aucun utilisateur nommé "${nom}" (avec ces critères) n'existe.` }] };
+        }
+
+        if (users.length > 1) {
+          return { content: [{ type: "text", text: `ERREUR CRITIQUE : Il y a ${users.length} personnes nommées "${nom}". Opération annulée. Tu dois relancer cet outil en renseignant le champ 'profession' pour cibler la bonne personne.` }] };
+        }
+
+        await contacts.deleteOne({ _id: users[0]._id });
+
         return {
-          content: [{ type: "text", text: `L'utilisateur "${nom}" a été supprimé avec succès de la base de données.` }]
+          content: [{ type: "text", text: `L'utilisateur "${nom}" a été supprimé avec succès.` }]
         };
       } catch (error) {
         return { content: [{ type: "text", text: `Erreur de suppression : ${error.message}` }], isError: true };
@@ -115,55 +130,66 @@ function createServer() {
   );
 
   // --- 5. TOOL : MODIFIER ---
-server.tool(
-  "modifier_utilisateur",
-  "Modifie les informations d'un contact existant. Seuls les champs renseignés seront mis à jour.",
-  {
-    nom_actuel: z.string().describe("Le nom exact du contact à modifier (obligatoire pour le trouver)"),
-    nouveau_nom: z.string().optional().describe("Nouveau nom (uniquement s'il doit être changé)"),
-    age: z.number().optional().describe("Nouvel âge"),
-    profession: z.string().optional().describe("Nouvelle profession"),
-    bio: z.string().optional().describe("Nouvelle biographie"),
-    localisation: z.string().optional().describe("Nouvelle localisation"),
-    competences: z.array(z.string()).optional().describe("Nouvelles compétences. DOIT être un tableau JSON, par exemple: [\"SQL\", \"Python\"]")
-  },
-  async ({ nom_actuel, nouveau_nom, age, profession, bio, localisation, competences }) => {
-    try {
-      console.log("competences reçues:", competences);
+  server.tool(
+    "modifier_utilisateur",
+    "Modifie les informations d'un contact existant. S'il y a des homonymes, il FAUT utiliser la profession actuelle pour cibler le bon.",
+    {
+      nom_actuel: z.string().describe("Le nom exact du contact à modifier (obligatoire)"),
+      profession_actuelle: z.string().optional().describe("La profession actuelle de la personne pour la distinguer d'un homonyme"),
+      nouveau_nom: z.string().optional().describe("Nouveau nom (uniquement s'il doit être changé)"),
+      age: z.number().optional().describe("Nouvel âge"),
+      profession: z.string().optional().describe("Nouvelle profession"),
+      bio: z.string().optional().describe("Nouvelle biographie"),
+      localisation: z.string().optional().describe("Nouvelle localisation"),
+      competences: z.array(z.string()).optional().describe("Nouvelles compétences. DOIT être un tableau JSON")
+    },
+    async ({ nom_actuel, profession_actuelle, nouveau_nom, age, profession, bio, localisation, competences }) => {
+      try {
+        const query = { nom: { $regex: new RegExp(nom_actuel.trim(), "i") } };
+        if (profession_actuelle) {
+          query.profession = { $regex: new RegExp(profession_actuelle.trim(), "i") };
+        }
 
-      const updateFields = {};
-      if (nouveau_nom)                                          updateFields.nom = nouveau_nom;
-      if (age !== undefined)                                    updateFields.age = age;
-      if (profession)                                           updateFields.profession = profession;
-      if (bio)                                                  updateFields.bio = bio;
-      if (localisation)                                         updateFields.localisation = localisation;
-      if (Array.isArray(competences) && competences.length > 0) {
-        updateFields.competences = competences;
+        const users = await contacts.find(query).toArray();
+
+        if (users.length === 0) {
+          return { content: [{ type: "text", text: `Modification impossible : aucun utilisateur nommé "${nom_actuel}" n'existe avec ces critères.` }] };
+        }
+
+        if (users.length > 1) {
+          return { content: [{ type: "text", text: `ERREUR CRITIQUE : Il y a ${users.length} personnes nommées "${nom_actuel}". Précise sa 'profession_actuelle' pour que je sache lequel modifier.` }] };
+        }
+
+        const updateFields = {};
+        if (nouveau_nom)
+          updateFields.nom = nouveau_nom;
+        if (age !== undefined)
+          updateFields.age = age;
+        if (profession)
+          updateFields.profession = profession;
+        if (bio)
+          updateFields.bio = bio;
+        if (localisation)
+          updateFields.localisation = localisation;
+        if (Array.isArray(competences) && competences.length > 0) updateFields.competences = competences;
+
+        if (Object.keys(updateFields).length === 0) {
+          return { content: [{ type: "text", text: `Aucune nouvelle information n'a été fournie pour mettre à jour ${nom_actuel}.` }] };
+        }
+
+        await contacts.updateOne(
+          { _id: users[0]._id },
+          { $set: updateFields }
+        );
+
+        return {
+          content: [{ type: "text", text: `Le profil de "${nom_actuel}" a été mis à jour avec succès dans la base de données.` }]
+        };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Erreur lors de la modification : ${error.message}` }], isError: true };
       }
-
-      console.log("updateFields:", JSON.stringify(updateFields)); 
-
-      if (Object.keys(updateFields).length === 0) {
-        return { content: [{ type: "text", text: `Aucune nouvelle information n'a été fournie pour mettre à jour ${nom_actuel}.` }] };
-      }
-
-      const result = await contacts.updateOne(
-        { nom: { $regex: new RegExp(`^${nom_actuel}$`, "i") } },
-        { $set: updateFields }
-      );
-
-      if (result.matchedCount === 0) {
-        return { content: [{ type: "text", text: `Modification impossible : aucun utilisateur nommé "${nom_actuel}" n'existe dans la base.` }] };
-      }
-
-      return {
-        content: [{ type: "text", text: `Le profil de "${nom_actuel}" a été mis à jour avec succès dans la base de données.` }]
-      };
-    } catch (error) {
-      return { content: [{ type: "text", text: `Erreur lors de la modification : ${error.message}` }], isError: true };
     }
-  }
-);
+  );
 
   // --- 6. TOOL : COMPARER ---
   server.tool(
@@ -358,6 +384,47 @@ server.tool(
         `.trim();
 
       return { content: [{ type: "text", text: texte }] };
+    }
+  );
+
+  // --- enririchir depuis un profil git hub ---
+  server.tool(
+    "enrichir_profil_github",
+    "Recherche des informations publiques sur un développeur via son pseudo GitHub pour enrichir son profil (bio, entreprise, localisation).",
+    {
+      pseudo: z.string().describe("Le pseudo GitHub exact de la cible (ex: torvalds)"),
+    },
+    async ({ pseudo }) => {
+      try {
+        const response = await fetch(`https://api.github.com/users/${pseudo}`);
+        
+        if (response.status === 404) {
+          return { content: [{ type: "text", text: `❌ Cible introuvable : Aucun profil GitHub ne correspond au pseudo "${pseudo}".` }] };
+        }
+        
+        if (!response.ok) {
+          throw new Error(`Erreur API GitHub : ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        const infos = {
+          nom_complet: data.name || data.login,
+          entreprise: data.company || "Indépendant / Non spécifié",
+          localisation: data.location || "Non spécifiée",
+          bio: data.bio || "Aucune biographie publique.",
+          followers: data.followers
+        };
+
+        return {
+          content: [{ 
+            type: "text", 
+            text: `Données OSINT récupérées avec succès :\n${JSON.stringify(infos, null, 2)}\n\nTu peux maintenant utiliser ces informations pour ajouter ou modifier ce contact.` 
+          }]
+        };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Échec de l'enrichissement : ${error.message}` }], isError: true };
+      }
     }
   );
 
