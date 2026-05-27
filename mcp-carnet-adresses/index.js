@@ -26,8 +26,9 @@ function createServer() {
       bio: z.string().describe("Courte biographie descriptive"),
       competences: z.array(z.string()).optional().describe("Liste des compétences clés"),
       localisation: z.string().optional().describe("Ville et pays"),
+      phone: z.string().optional().describe("Numéro de téléphone"),
     },
-    async ({ nom, age, profession, bio, competences, localisation }) => {
+    async ({ nom, age, profession, bio, competences, localisation, phone }) => { 
       try {
         const result = await contacts.insertOne({
           nom,
@@ -36,6 +37,7 @@ function createServer() {
           bio,
           competences: competences ?? [],
           localisation: localisation ?? "Non spécifiée",
+          phone: phone ?? null,
           createdAt: new Date(),
         });
         return {
@@ -141,9 +143,11 @@ function createServer() {
       profession: z.string().optional().describe("Nouvelle profession"),
       bio: z.string().optional().describe("Nouvelle biographie"),
       localisation: z.string().optional().describe("Nouvelle localisation"),
-      competences: z.array(z.string()).optional().describe("Nouvelles compétences. DOIT être un tableau JSON")
+      phone: z.string().optional().describe("Nouveau numéro de téléphone"),
+      competences: z.array(z.string()).optional().describe("Nouvelles compétences à AJOUTER"),
+      competences_a_supprimer: z.array(z.string()).optional().describe("Compétences à RETIRER")
     },
-    async ({ nom_actuel, profession_actuelle, nouveau_nom, age, profession, bio, localisation, competences }) => {
+    async ({ nom_actuel, profession_actuelle, nouveau_nom, age, profession, bio, localisation, phone, competences, competences_a_supprimer }) => {
       try {
         const query = { nom: { $regex: new RegExp(nom_actuel.trim(), "i") } };
         if (profession_actuelle) {
@@ -161,29 +165,40 @@ function createServer() {
         }
 
         const updateFields = {};
-        if (nouveau_nom)
-          updateFields.nom = nouveau_nom;
-        if (age !== undefined)
-          updateFields.age = age;
-        if (profession)
-          updateFields.profession = profession;
-        if (bio)
-          updateFields.bio = bio;
-        if (localisation)
-          updateFields.localisation = localisation;
-        if (Array.isArray(competences) && competences.length > 0) updateFields.competences = competences;
+        if (nouveau_nom) updateFields.nom = nouveau_nom;
+        if (age !== undefined) updateFields.age = age;
+        if (profession) updateFields.profession = profession;
+        if (bio) updateFields.bio = bio;
+        if (localisation) updateFields.localisation = localisation;
+        if (phone) updateFields.phone = phone;
+        
+        const updateQuery = {};
+        
+        if (Object.keys(updateFields).length > 0) {
+          updateQuery.$set = updateFields;
+        }
 
-        if (Object.keys(updateFields).length === 0) {
+        if (Array.isArray(competences) && competences.length > 0) {
+          updateQuery.$addToSet = { competences: { $each: competences } };
+        }
+
+        if (Array.isArray(competences_a_supprimer) && competences_a_supprimer.length > 0) {
+          if (!competences || competences.length === 0) {
+            updateQuery.$pullAll = { competences: competences_a_supprimer };
+          }
+        }
+
+        if (Object.keys(updateQuery).length === 0) {
           return { content: [{ type: "text", text: `Aucune nouvelle information n'a été fournie pour mettre à jour ${nom_actuel}.` }] };
         }
 
         await contacts.updateOne(
           { _id: users[0]._id },
-          { $set: updateFields }
+          updateQuery
         );
 
         return {
-          content: [{ type: "text", text: `Le profil de "${nom_actuel}" a été mis à jour avec succès dans la base de données.` }]
+          content: [{ type: "text", text: `SUCCESS: Le profil de "${nom_actuel}" a été mis à jour avec succès dans la base de données. Formate ta réponse JSON.` }]
         };
       } catch (error) {
         return { content: [{ type: "text", text: `Erreur lors de la modification : ${error.message}` }], isError: true };
